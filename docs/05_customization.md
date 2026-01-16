@@ -25,7 +25,8 @@ app/
 ├── routers/          # API 라우터 (엔드포인트)
 ├── services/         # 비즈니스 로직
 ├── dependencies/     # 종속성 (인증 등)
-└── utils/            # 유틸리티 함수
+├── middleware/       # 미들웨어 (로깅 등)
+└── utils/            # 유틸리티 함수 (로거 등)
 ```
 
 ### 데이터 흐름
@@ -403,42 +404,92 @@ def downgrade() -> None:
 
 ## 미들웨어 추가
 
-### 요청 로깅 미들웨어
+### 기본 제공 미들웨어
 
-`app/middleware.py`:
+프로젝트에는 HTTP 요청/응답 로깅 미들웨어가 기본 제공됩니다.
+
+**파일 구조:**
+
+```
+app/middleware/
+├── __init__.py
+└── logging.py      # LoggingMiddleware
+```
+
+### LoggingMiddleware 사용
+
+`app/main.py`에서 기본 설정:
+
+```python
+from app.middleware import LoggingMiddleware
+
+app.add_middleware(
+    LoggingMiddleware,
+    exclude_paths=["/health", "/metrics", "/favicon.ico", "/docs", "/redoc", "/openapi.json"],
+)
+```
+
+### 로깅 미들웨어 옵션
+
+```python
+app.add_middleware(
+    LoggingMiddleware,
+    exclude_paths=["/health", "/internal/"],  # 로깅 제외 경로
+    log_request_body=False,   # 요청 본문 로깅 (주의: 민감 정보)
+    log_response_body=False,  # 응답 본문 로깅 (주의: 성능 영향)
+)
+```
+
+### 커스텀 미들웨어 추가
+
+`app/middleware/custom.py`:
 
 ```python
 import time
-from fastapi import Request
-import logging
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
-logger = logging.getLogger(__name__)
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
-async def log_requests(request: Request, call_next):
-    """요청 로깅 미들웨어"""
-    start_time = time.time()
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """요청 속도 제한 미들웨어 예시"""
 
-    response = await call_next(request)
+    def __init__(self, app, requests_per_minute: int = 60):
+        super().__init__(app)
+        self.requests_per_minute = requests_per_minute
+        self.requests = {}
 
-    process_time = time.time() - start_time
-    logger.info(
-        f"{request.method} {request.url.path} "
-        f"completed in {process_time:.4f}s "
-        f"status={response.status_code}"
-    )
+    async def dispatch(self, request: Request, call_next) -> Response:
+        client_ip = request.client.host
 
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
+        # 속도 제한 로직
+        if self._is_rate_limited(client_ip):
+            logger.warning(f"속도 제한 초과: {client_ip}")
+            return Response(
+                content="Too Many Requests",
+                status_code=429
+            )
+
+        return await call_next(request)
+
+    def _is_rate_limited(self, client_ip: str) -> bool:
+        # 구현 로직
+        return False
 ```
 
 ### main.py에 등록
 
 ```python
-from app.middleware import log_requests
+from app.middleware.custom import RateLimitMiddleware
 
-app.middleware("http")(log_requests)
+app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 ```
+
+> 📖 로깅 시스템에 대한 자세한 내용은 [로깅 가이드](06_logging.md)를 참조하세요.
 
 ---
 
@@ -513,8 +564,9 @@ class TestProducts:
 
 ## 다음 단계
 
-더 자세한 FastAPI 개념은 튜토리얼 문서를 참조하세요:
+더 자세한 내용은 관련 문서를 참조하세요:
 
+- [로깅 가이드](06_logging.md): 로깅 시스템 상세
 - [FastAPI 기본](tutorial/01_fastapi_basics.md)
 - [라우팅](tutorial/02_routing.md)
 - [데이터베이스](tutorial/03_database.md)
