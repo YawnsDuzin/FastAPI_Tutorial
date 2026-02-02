@@ -41,6 +41,13 @@ uvicorn app.main:app --reload
 
 ## 자세한 문서
 
+### 처음 시작하는 분들을 위한 가이드
+
+- [웹 개발 입문 가이드](docs/00_introduction.md) - 웹, API, REST, HTTP 등 기초 개념
+- [개발 환경 준비](docs/tutorial/00_before_you_start.md) - Python 설치, 터미널, VS Code, Git 기초
+
+### 프로젝트 문서
+
 - [설치 가이드](docs/01_installation.md)
 - [환경 설정](docs/02_configuration.md)
 - [사용 가이드](docs/03_usage.md)
@@ -49,7 +56,8 @@ uvicorn app.main:app --reload
 
 ### FastAPI 튜토리얼
 
-- [FastAPI 기본](docs/tutorial/01_fastapi_basics.md)
+- [시작하기 전에](docs/tutorial/00_before_you_start.md) - 개발 환경 준비와 Python 기본기
+- [FastAPI 기본](docs/tutorial/01_fastapi_basics.md) - 앱 생성, 라우트, 요청/응답, 의존성 주입
 - [라우팅](docs/tutorial/02_routing.md)
 - [데이터베이스](docs/tutorial/03_database.md)
 - [인증](docs/tutorial/04_authentication.md)
