@@ -15,7 +15,9 @@
 5. [CORS 설정](#cors-설정)
 6. [테마 설정](#테마-설정)
 7. [환경별 설정 관리](#환경별-설정-관리)
-
+=======
+6. [로깅 설정](#로깅-설정)
+7. [테마 설정](#테마-설정)
 ---
 
 ## 환경 변수 개요
@@ -333,6 +335,74 @@ CORS_ALLOW_HEADERS=["Authorization","Content-Type"]
 
 ---
 
+## 로깅 설정
+
+### 기본 설정
+
+```env
+# 로그 레벨 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_LEVEL=INFO
+
+# 로그 출력 포맷
+LOG_FORMAT="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
+
+# 로그 날짜 포맷
+LOG_DATE_FORMAT="%Y-%m-%d %H:%M:%S"
+```
+
+### 파일 로깅 설정
+
+```env
+# 파일 로깅 활성화
+LOG_FILE_ENABLED=true
+
+# 로그 파일 경로
+LOG_FILE_PATH=logs/app.log
+
+# 로그 파일 최대 크기 (bytes, 기본 10MB)
+LOG_FILE_MAX_BYTES=10485760
+
+# 백업 파일 개수
+LOG_FILE_BACKUP_COUNT=5
+
+# JSON 형식 로깅 (로그 수집 시스템 연동 시)
+LOG_JSON_FORMAT=false
+```
+
+### 환경별 로그 레벨 권장값
+
+| 환경 | LOG_LEVEL | LOG_FILE_ENABLED | 설명 |
+|------|-----------|------------------|------|
+| 개발 | DEBUG | false | 상세 디버깅 정보 |
+| 스테이징 | INFO | true | 일반 운영 정보 |
+| 프로덕션 | WARNING | true | 경고 이상만 기록 |
+
+### 로그 출력 예시
+
+```
+2024-01-15 10:30:45 | INFO     | app.main:54 | FastAPI Boilerplate v1.0.0 시작
+2024-01-15 10:30:45 | INFO     | app.middleware.logging:82 | [a1b2c3d4] --> GET /api/v1/users | Client: 127.0.0.1
+2024-01-15 10:30:45 | INFO     | app.middleware.logging:95 | [a1b2c3d4] <-- GET /api/v1/users | Status: 200 | Time: 12.34ms
+```
+
+### JSON 로그 포맷 (LOG_JSON_FORMAT=true)
+
+```json
+{
+    "timestamp": "2024-01-15T10:30:45.123456Z",
+    "level": "INFO",
+    "logger": "app.middleware.logging",
+    "message": "[a1b2c3d4] --> GET /api/v1/users | Client: 127.0.0.1",
+    "module": "logging",
+    "function": "dispatch",
+    "line": 82
+}
+```
+
+> 📖 자세한 로깅 사용법은 [로깅 가이드](06_logging.md)를 참조하세요.
+
+---
+
 ## 테마 설정
 
 ### 테마 옵션
@@ -383,6 +453,12 @@ FastAPI Boilerplate v1.0.0 시작...
 데이터베이스: postgresql
 디버그 모드: True
 데이터베이스 테이블 생성 완료
+=======
+2024-01-15 10:30:45 | INFO     | app.main:54 | FastAPI Boilerplate v1.0.0 시작
+2024-01-15 10:30:45 | INFO     | app.main:55 | 데이터베이스 타입: postgresql
+2024-01-15 10:30:45 | INFO     | app.main:56 | 디버그 모드: True
+2024-01-15 10:30:45 | INFO     | app.main:57 | 로그 레벨: INFO
+2024-01-15 10:30:45 | INFO     | app.main:61 | 데이터베이스 테이블 생성 완료
 ```
 
 ---

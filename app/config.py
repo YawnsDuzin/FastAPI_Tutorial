@@ -60,6 +60,21 @@ class Settings(BaseSettings):
     cors_allow_headers: str = Field(default='["*"]', alias="CORS_ALLOW_HEADERS")
 
     # ===========================================
+    # Logging Settings
+    # ===========================================
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    log_format: str = Field(
+        default="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+        alias="LOG_FORMAT"
+    )
+    log_date_format: str = Field(default="%Y-%m-%d %H:%M:%S", alias="LOG_DATE_FORMAT")
+    log_file_enabled: bool = Field(default=True, alias="LOG_FILE_ENABLED")
+    log_file_path: str = Field(default="logs/app.log", alias="LOG_FILE_PATH")
+    log_file_max_bytes: int = Field(default=10485760, alias="LOG_FILE_MAX_BYTES")  # 10MB
+    log_file_backup_count: int = Field(default=5, alias="LOG_FILE_BACKUP_COUNT")
+    log_json_format: bool = Field(default=False, alias="LOG_JSON_FORMAT")
+
+    # ===========================================
     # Theme Settings
     # ===========================================
     default_theme: str = Field(default="light", alias="DEFAULT_THEME")
