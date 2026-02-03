@@ -2,14 +2,97 @@
 
 이 문서에서는 FastAPI에서 SQLAlchemy를 사용한 데이터베이스 작업을 설명합니다.
 
+> **이 문서를 읽기 전에**: [FastAPI 기본 문법](01_fastapi_basics.md)과 [라우팅](02_routing.md)을 먼저 읽으면 이해가 쉽습니다.
+
+## 데이터베이스란?
+
+> **초보자 안내:** 데이터베이스(DB)는 **데이터를 체계적으로 저장하고 관리하는 곳**입니다.
+>
+> 엑셀 스프레드시트를 생각해 보세요:
+> ```
+> [users 테이블 = 엑셀 시트]
+>
+> id | email              | username | password_hash | created_at
+> ---+--------------------+----------+---------------+------------
+>  1 | alice@example.com  | alice    | abc123...     | 2024-01-01
+>  2 | bob@example.com    | bob      | def456...     | 2024-01-02
+>  3 | carol@example.com  | carol    | ghi789...     | 2024-01-03
+>
+> - 테이블 = 엑셀 시트 (users, posts, comments...)
+> - 행(Row) = 데이터 한 개 (1번 사용자, 2번 사용자...)
+> - 열(Column) = 데이터 속성 (email, username...)
+> ```
+>
+> **왜 엑셀 대신 데이터베이스를 사용하나요?**
+>
+> | 기능 | 엑셀 | 데이터베이스 |
+> |------|------|-------------|
+> | 동시 접속 | 한 명만 | 수천 명 동시 가능 |
+> | 데이터 양 | 수만 행 한계 | 수억 행 가능 |
+> | 검색 속도 | 느림 | 빠름 (인덱스) |
+> | 데이터 무결성 | 보장 안 됨 | 제약조건으로 보장 |
+
 ## 목차
 
-1. [SQLAlchemy 설정](#sqlalchemy-설정)
-2. [모델 정의](#모델-정의)
-3. [관계 설정](#관계-설정)
-4. [CRUD 작업](#crud-작업)
-5. [쿼리 작성](#쿼리-작성)
-6. [마이그레이션](#마이그레이션)
+1. [SQLAlchemy 소개](#sqlalchemy-소개)
+2. [SQLAlchemy 설정](#sqlalchemy-설정)
+3. [모델 정의](#모델-정의)
+4. [관계 설정](#관계-설정)
+5. [CRUD 작업](#crud-작업)
+6. [쿼리 작성](#쿼리-작성)
+7. [마이그레이션](#마이그레이션)
+
+---
+
+## SQLAlchemy 소개
+
+### SQLAlchemy란?
+
+> **초보자 안내:** SQLAlchemy는 **Python 코드로 데이터베이스를 다루게 해주는 도구**입니다.
+>
+> 보통 데이터베이스는 SQL이라는 언어로 다룹니다:
+> ```sql
+> -- SQL: 데이터베이스 전용 언어
+> SELECT * FROM users WHERE email = 'alice@example.com';
+> INSERT INTO users (email, username) VALUES ('bob@example.com', 'bob');
+> ```
+>
+> SQLAlchemy를 사용하면 Python으로 같은 작업을 할 수 있습니다:
+> ```python
+> # Python (SQLAlchemy ORM)
+> user = db.query(User).filter(User.email == 'alice@example.com').first()
+> new_user = User(email='bob@example.com', username='bob')
+> db.add(new_user)
+> ```
+>
+> **장점:**
+> - SQL을 몰라도 데이터베이스 사용 가능
+> - Python 문법 그대로 사용
+> - 타입 힌트와 자동완성 지원
+> - 다양한 DB(PostgreSQL, MySQL, SQLite) 지원
+
+### ORM이란?
+
+> **초보자 안내:** ORM(Object-Relational Mapping)은 **데이터베이스 테이블을 Python 클래스로 표현**하는 방식입니다.
+>
+> ```
+> [데이터베이스 테이블]              [Python 클래스]
+>
+> users 테이블                  →   class User:
+> ┌────┬─────────────┐              id: int
+> │ id │ email       │              email: str
+> ├────┼─────────────┤              username: str
+> │  1 │ alice@...   │
+> │  2 │ bob@...     │
+> └────┴─────────────┘
+>
+> 테이블의 각 행 = User 객체 하나
+> ```
+>
+> 비유: 번역기
+> - SQL을 모르는 Python 개발자
+> - Python 코드를 쓰면 SQLAlchemy가 SQL로 번역해서 DB에 전달
+> - DB 결과를 다시 Python 객체로 번역해서 반환
 
 ---
 
@@ -61,6 +144,32 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 ```
 
+> **코드 해석:**
+>
+> | 코드 | 하는 일 | 비유 |
+> |------|---------|------|
+> | `create_engine()` | DB 연결 설정 생성 | 전화선 설치 |
+> | `SessionLocal` | DB 대화 창구 공장 | 상담 창구 매뉴얼 |
+> | `Base` | 모든 모델의 부모 클래스 | 모델 틀 |
+>
+> **커넥션 풀이란?**
+> ```
+> [커넥션 풀 = 수영장 레인]
+>
+> DB 연결을 미리 10개 만들어 두고 (pool_size=10)
+> 요청이 오면 빈 연결을 빌려줌
+> 요청이 끝나면 연결을 반납 (닫지 않고 재사용)
+>
+> ┌─────────────────────────────────┐
+> │        커넥션 풀 (10개)          │
+> │  [연결1] [연결2] [연결3] ... [연결10]  │
+> └─────────────────────────────────┘
+>        ↑       ↑       ↑
+>      요청1   요청2   요청3
+>
+> 매번 새 연결을 만드는 것보다 훨씬 빠름!
+> ```
+
 ### 세션 의존성
 
 ```python
@@ -81,6 +190,18 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 ```
 
+> **초보자 안내:** `get_db()`의 동작 순서:
+>
+> ```
+> 1. API 요청 들어옴
+> 2. db = SessionLocal() → 새 세션 생성
+> 3. yield db → 세션을 API 함수에 전달
+> 4. API 함수 실행 (DB 작업)
+> 5. finally: db.close() → 세션 자동 종료
+> ```
+>
+> `yield`와 `finally` 덕분에 DB 연결이 항상 정리됩니다!
+
 ### 사용 예시
 
 ```python
@@ -93,9 +214,37 @@ def get_items(db: Session = Depends(get_db)):
     return db.query(Item).all()
 ```
 
+> **초보자 안내:** `db: Session = Depends(get_db)`의 의미:
+>
+> "이 함수를 실행하기 전에 `get_db()`를 먼저 실행해서 `db`를 준비해줘"
+>
+> 덕분에 매번 DB 연결 코드를 쓸 필요가 없습니다!
+
 ---
 
 ## 모델 정의
+
+### 모델이란?
+
+> **초보자 안내:** 모델은 **데이터베이스 테이블을 Python 클래스로 표현한 것**입니다.
+>
+> ```python
+> # 이 Python 클래스가...
+> class User(Base):
+>     __tablename__ = "users"
+>     id = Column(Integer, primary_key=True)
+>     email = Column(String(255))
+>     username = Column(String(50))
+> ```
+>
+> ```
+> # ...이 데이터베이스 테이블이 됩니다
+> CREATE TABLE users (
+>     id INTEGER PRIMARY KEY,
+>     email VARCHAR(255),
+>     username VARCHAR(50)
+> );
+> ```
 
 ### 기본 모델 (app/models/user.py)
 
@@ -156,76 +305,145 @@ class User(Base):
         return self.role == UserRole.ADMIN
 ```
 
-### 컬럼 타입
+> **코드 해석:**
+>
+> | 코드 | 의미 |
+> |------|------|
+> | `__tablename__ = "users"` | DB에서 테이블 이름은 "users" |
+> | `primary_key=True` | 이 컬럼이 기본 키 (유일한 식별자) |
+> | `unique=True` | 중복 값 불가 (같은 이메일 두 번 등록 불가) |
+> | `index=True` | 검색 속도 향상을 위한 인덱스 생성 |
+> | `nullable=False` | NULL 불가 (필수 입력) |
+> | `default=UserRole.USER` | 기본값 설정 |
+> | `onupdate=datetime.utcnow` | 수정할 때마다 자동으로 현재 시간 기록 |
 
-| SQLAlchemy 타입 | Python 타입 | SQL 타입 |
-|----------------|-------------|----------|
-| `Integer` | `int` | INTEGER |
-| `String(n)` | `str` | VARCHAR(n) |
-| `Text` | `str` | TEXT |
-| `Float` | `float` | FLOAT |
-| `Boolean` | `bool` | BOOLEAN |
-| `DateTime` | `datetime` | TIMESTAMP |
-| `Date` | `date` | DATE |
-| `JSON` | `dict` | JSON |
+### 컬럼 타입 정리
 
-### 컬럼 옵션
+| SQLAlchemy 타입 | Python 타입 | SQL 타입 | 설명 |
+|----------------|-------------|----------|------|
+| `Integer` | `int` | INTEGER | 정수 |
+| `String(n)` | `str` | VARCHAR(n) | 길이 제한 문자열 |
+| `Text` | `str` | TEXT | 긴 문자열 |
+| `Float` | `float` | FLOAT | 소수점 숫자 |
+| `Boolean` | `bool` | BOOLEAN | 참/거짓 |
+| `DateTime` | `datetime` | TIMESTAMP | 날짜+시간 |
+| `Date` | `date` | DATE | 날짜만 |
+| `JSON` | `dict` | JSON | JSON 데이터 |
+
+### 컬럼 옵션 정리
 
 ```python
 Column(
     String(255),
-    primary_key=True,     # 기본 키
-    unique=True,          # 유니크 제약
-    index=True,           # 인덱스 생성
-    nullable=False,       # NOT NULL
-    default="value",      # 기본값
+    primary_key=True,     # 기본 키 (테이블당 1개)
+    unique=True,          # 중복 불가
+    index=True,           # 검색 빠르게 (인덱스)
+    nullable=False,       # NULL 불가 (필수)
+    default="value",      # Python 기본값
     server_default="now()",  # DB 레벨 기본값
-    onupdate=datetime.utcnow  # 업데이트 시 자동 갱신
+    onupdate=datetime.utcnow  # 수정 시 자동 갱신
 )
 ```
+
+> **초보자 안내:** 인덱스(index)란?
+>
+> ```
+> [인덱스 없이 검색]
+> "alice@example.com을 찾아라"
+> → 처음부터 끝까지 1,000,000개 데이터를 하나씩 확인 (느림)
+>
+> [인덱스 있으면]
+> "alice@example.com을 찾아라"
+> → 인덱스(목차)에서 바로 위치 확인 → 바로 찾음 (빠름)
+>
+> 책의 목차처럼, 자주 검색하는 컬럼에는 인덱스를 걸어두세요!
+> ```
 
 ---
 
 ## 관계 설정
 
-### 일대다 관계
+### 관계란?
+
+> **초보자 안내:** 관계(Relationship)는 **테이블 간의 연결**입니다.
+>
+> ```
+> [현실 세계의 관계]
+>
+> 사용자 ──┬── 게시글1
+>         ├── 게시글2
+>         └── 게시글3
+>
+> "한 명의 사용자가 여러 개의 게시글을 작성할 수 있다"
+> ```
+>
+> 이것을 데이터베이스로 표현하면:
+> ```
+> users 테이블              posts 테이블
+> ┌────┬─────────┐         ┌────┬───────────┬───────────┐
+> │ id │ name    │         │ id │ title     │ author_id │
+> ├────┼─────────┤         ├────┼───────────┼───────────┤
+> │  1 │ alice   │    ←────│  1 │ 첫 글     │     1     │
+> │  2 │ bob     │    ←────│  2 │ 두번째 글 │     1     │
+> └────┴─────────┘         │  3 │ bob의 글  │     2     │
+>                          └────┴───────────┴───────────┘
+>                                              ↑
+>                               이 컬럼이 users.id를 참조 (외래 키)
+> ```
+
+### 일대다 관계 (1:N)
+
+가장 흔한 관계입니다. 예: 한 명의 사용자가 여러 게시글을 작성
 
 ```python
-# 사용자 (1) - 게시글 (N)
-
-# User 모델
+# User 모델 (1쪽)
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
     # ...
 
-    # 관계 정의 (일)
+    # 관계 정의: "이 사용자의 게시글들"
     posts = relationship(
-        "Post",
-        back_populates="author",
+        "Post",                    # 연결할 모델
+        back_populates="author",   # Post 모델의 author 속성과 연결
         cascade="all, delete-orphan"  # 사용자 삭제 시 게시글도 삭제
     )
 
 
-# Post 모델
+# Post 모델 (N쪽)
 class Post(Base):
     __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
 
-    # 외래 키 (다)
+    # 외래 키: "이 게시글의 작성자 ID"
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # 관계 정의 (다)
+    # 관계 정의: "이 게시글의 작성자"
     author = relationship("User", back_populates="posts")
 ```
 
-### 다대다 관계
+> **코드 사용 예시:**
+>
+> ```python
+> # 사용자의 모든 게시글 가져오기
+> user = db.query(User).first()
+> user.posts  # [Post1, Post2, Post3, ...]
+>
+> # 게시글의 작성자 가져오기
+> post = db.query(Post).first()
+> post.author  # User 객체
+> post.author.username  # "alice"
+> ```
+
+### 다대다 관계 (N:N)
+
+예: 게시글과 태그 (한 게시글에 여러 태그, 한 태그가 여러 게시글에)
 
 ```python
-# 연결 테이블
+# 연결 테이블 (중간 테이블)
 post_tags = Table(
     "post_tags",
     Base.metadata,
@@ -242,7 +460,7 @@ class Post(Base):
     # 다대다 관계
     tags = relationship(
         "Tag",
-        secondary=post_tags,
+        secondary=post_tags,  # 연결 테이블 지정
         back_populates="posts"
     )
 
@@ -260,7 +478,25 @@ class Tag(Base):
     )
 ```
 
+> **초보자 안내:** 다대다 관계는 **연결 테이블**이 필요합니다:
+>
+> ```
+> posts        post_tags (연결 테이블)     tags
+> ┌────┐      ┌─────────┬────────┐      ┌────┬─────────┐
+> │ id │      │ post_id │ tag_id │      │ id │ name    │
+> ├────┤      ├─────────┼────────┤      ├────┼─────────┤
+> │  1 │──────│    1    │   1    │──────│  1 │ python  │
+> │    │──────│    1    │   2    │──────│  2 │ fastapi │
+> │  2 │──────│    2    │   1    │      │  3 │ web     │
+> └────┘      └─────────┴────────┘      └────┴─────────┘
+>
+> 게시글 1 → 태그: python, fastapi
+> 게시글 2 → 태그: python
+> ```
+
 ### 자기 참조 관계 (app/models/post.py)
+
+예: 댓글과 대댓글
 
 ```python
 class Comment(Base):
@@ -288,27 +524,70 @@ class Comment(Base):
     )
 ```
 
+> **초보자 안내:** 자기 참조는 **같은 테이블 내에서 관계**를 만드는 것입니다:
+>
+> ```
+> comments 테이블
+> ┌────┬─────────────┬───────────┐
+> │ id │ content     │ parent_id │
+> ├────┼─────────────┼───────────┤
+> │  1 │ "첫 댓글"    │   NULL    │  ← 원댓글
+> │  2 │ "대댓글1"    │     1     │  ← 1번의 대댓글
+> │  3 │ "대댓글2"    │     1     │  ← 1번의 대댓글
+> │  4 │ "대대댓글"   │     2     │  ← 2번의 대댓글
+> └────┴─────────────┴───────────┘
+> ```
+
 ---
 
 ## CRUD 작업
+
+### CRUD란?
+
+> **초보자 안내:** CRUD는 데이터베이스의 **4가지 기본 작업**입니다:
+>
+> | 작업 | 의미 | SQL | Python (SQLAlchemy) |
+> |------|------|-----|---------------------|
+> | **C**reate | 생성 | INSERT | `db.add(obj)` |
+> | **R**ead | 조회 | SELECT | `db.query().all()` |
+> | **U**pdate | 수정 | UPDATE | `obj.field = value` |
+> | **D**elete | 삭제 | DELETE | `db.delete(obj)` |
 
 ### Create (생성)
 
 ```python
 def create_user(db: Session, user_data: UserCreate) -> User:
     """사용자 생성"""
+    # 1. 객체 생성
     user = User(
         email=user_data.email,
         username=user_data.username,
         hashed_password=get_password_hash(user_data.password)
     )
 
-    db.add(user)           # 세션에 추가
-    db.commit()            # 커밋
-    db.refresh(user)       # DB에서 다시 로드 (ID 등 갱신)
+    # 2. 세션에 추가 (아직 DB에 저장 안 됨)
+    db.add(user)
+
+    # 3. DB에 저장 (커밋)
+    db.commit()
+
+    # 4. DB에서 다시 로드 (자동 생성된 ID 등 갱신)
+    db.refresh(user)
 
     return user
 ```
+
+> **초보자 안내:** 저장 과정:
+>
+> ```
+> db.add(user)    →  "이 데이터 저장할 거야" (예약)
+> db.commit()     →  "진짜 저장해!" (실제 저장)
+> db.refresh(user) → "저장된 최신 데이터로 갱신해줘" (ID 등 가져옴)
+> ```
+>
+> 왜 `commit()` 전까지 저장이 안 될까요?
+> - 여러 작업을 묶어서 처리 가능 (트랜잭션)
+> - 중간에 오류나면 전체 취소 가능 (롤백)
 
 ### Read (조회)
 
@@ -327,6 +606,17 @@ def get_users(
     return db.query(User).offset(skip).limit(limit).all()
 ```
 
+> **코드 해석:**
+>
+> | 메서드 | 의미 |
+> |--------|------|
+> | `db.query(User)` | User 테이블에서 조회 시작 |
+> | `.filter(User.id == 1)` | id가 1인 것만 |
+> | `.first()` | 첫 번째 결과 (없으면 None) |
+> | `.all()` | 모든 결과 (리스트) |
+> | `.offset(10)` | 10개 건너뛰고 |
+> | `.limit(5)` | 5개만 |
+
 ### Update (수정)
 
 ```python
@@ -336,20 +626,36 @@ def update_user(
     user_data: UserUpdate
 ) -> Optional[User]:
     """사용자 정보 수정"""
+    # 1. 기존 데이터 조회
     user = db.query(User).filter(User.id == user_id).first()
 
     if not user:
         return None
 
-    # 제공된 필드만 업데이트
+    # 2. 제공된 필드만 업데이트
     for field, value in user_data.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
 
+    # 3. 저장
     db.commit()
     db.refresh(user)
 
     return user
 ```
+
+> **초보자 안내:** `exclude_unset=True`의 의미:
+>
+> ```python
+> # user_data = {"username": "new_name"}  (email은 안 보냄)
+>
+> user_data.model_dump(exclude_unset=True)
+> # → {"username": "new_name"}  (보낸 것만)
+>
+> user_data.model_dump(exclude_unset=False)
+> # → {"username": "new_name", "email": None, ...}  (안 보낸 것은 None)
+> ```
+>
+> `exclude_unset=True`를 써야 **보낸 필드만** 수정됩니다!
 
 ### Delete (삭제)
 
@@ -386,7 +692,7 @@ class PostService:
         )
 
         self.db.add(post)
-        self.db.flush()  # ID 생성을 위해 flush
+        self.db.flush()  # ID 생성을 위해 flush (커밋은 아직)
 
         # 슬러그에 ID 추가
         post.slug = generate_slug(post_data.title, post.id)
@@ -396,6 +702,15 @@ class PostService:
 
         return post
 ```
+
+> **초보자 안내:** `flush()` vs `commit()`:
+>
+> | 메서드 | 하는 일 | 취소 가능? |
+> |--------|---------|-----------|
+> | `flush()` | DB에 보내기만 함 (ID 생성됨) | 가능 (rollback) |
+> | `commit()` | 실제 저장 확정 | 불가능 |
+>
+> `flush()`는 ID가 필요하지만 아직 저장 확정하고 싶지 않을 때 사용합니다.
 
 ---
 
@@ -437,9 +752,9 @@ users = db.query(User).filter(
     )
 ).first()
 
-# LIKE 검색
+# LIKE 검색 (부분 일치)
 posts = db.query(Post).filter(
-    Post.title.ilike(f"%{search}%")
+    Post.title.ilike(f"%{search}%")  # 대소문자 무시
 ).all()
 
 # IN 조건
@@ -453,21 +768,32 @@ users = db.query(User).filter(
 ).all()
 ```
 
+> **초보자 안내:** 필터 조건 정리:
+>
+> | 조건 | SQLAlchemy | SQL |
+> |------|-----------|-----|
+> | 같음 | `User.id == 1` | `id = 1` |
+> | 다름 | `User.id != 1` | `id != 1` |
+> | 크다 | `User.age > 20` | `age > 20` |
+> | 포함 | `Post.title.ilike("%검색어%")` | `title LIKE '%검색어%'` |
+> | 목록 | `User.id.in_([1,2,3])` | `id IN (1,2,3)` |
+> | NULL | `User.field.is_(None)` | `field IS NULL` |
+
 ### 정렬
 
 ```python
 from sqlalchemy import desc, asc
 
-# 내림차순
+# 내림차순 (최신순)
 posts = db.query(Post).order_by(desc(Post.created_at)).all()
 
-# 오름차순
+# 오름차순 (오래된순)
 posts = db.query(Post).order_by(asc(Post.title)).all()
 
 # 여러 컬럼
 posts = db.query(Post).order_by(
-    desc(Post.is_pinned),
-    desc(Post.created_at)
+    desc(Post.is_pinned),   # 고정글 먼저
+    desc(Post.created_at)   # 그 다음 최신순
 ).all()
 ```
 
@@ -494,6 +820,18 @@ def get_posts(
     return posts, total
 ```
 
+> **초보자 안내:** 페이지네이션 계산:
+>
+> ```
+> 총 데이터: 100개, 페이지당 10개
+>
+> 1페이지: offset(0), limit(10)  → 1~10번
+> 2페이지: offset(10), limit(10) → 11~20번
+> 3페이지: offset(20), limit(10) → 21~30번
+>
+> offset = (page - 1) * size
+> ```
+
 ### 조인과 관계 로딩
 
 ```python
@@ -510,6 +848,24 @@ posts = db.query(Post).join(User).filter(
     User.is_active == True
 ).all()
 ```
+
+> **초보자 안내:** N+1 문제란?
+>
+> ```
+> # ❌ 문제 상황 (joinedload 없이)
+> posts = db.query(Post).all()    # 쿼리 1번
+> for post in posts:
+>     print(post.author.name)     # 각 게시글마다 쿼리 1번씩!
+>
+> # 게시글 100개면 → 쿼리 101번 (1 + 100)
+> ```
+>
+> ```
+> # ✅ 해결 (joinedload 사용)
+> posts = db.query(Post).options(joinedload(Post.author)).all()
+>
+> # 쿼리 1번에 author 정보도 함께 가져옴!
+> ```
 
 ### 집계 함수
 
@@ -583,6 +939,28 @@ def get_posts(
 
 ## 마이그레이션
 
+### 마이그레이션이란?
+
+> **초보자 안내:** 마이그레이션은 **데이터베이스 구조를 버전 관리**하는 것입니다.
+>
+> ```
+> [마이그레이션 = 데이터베이스의 Git]
+>
+> 코드 변경 이력처럼, DB 구조 변경도 기록합니다:
+>
+> 버전 1: users 테이블 생성
+> 버전 2: users에 phone 컬럼 추가
+> 버전 3: posts 테이블 생성
+> 버전 4: posts에 is_pinned 컬럼 추가
+>
+> 언제든 특정 버전으로 돌아갈 수 있습니다!
+> ```
+>
+> **왜 필요한가요?**
+> - 팀원들과 DB 구조 동기화
+> - 운영 서버에 안전하게 변경 적용
+> - 문제 발생 시 롤백 가능
+
 ### Alembic 설정
 
 ```bash
@@ -593,12 +971,14 @@ alembic init alembic
 ### 마이그레이션 생성
 
 ```bash
-# 자동 생성
+# 자동 생성 (모델 변경 감지)
 alembic revision --autogenerate -m "Add users table"
 
-# 수동 생성
+# 수동 생성 (직접 작성)
 alembic revision -m "Add custom migration"
 ```
+
+> **초보자 안내:** `--autogenerate`를 쓰면 SQLAlchemy 모델과 실제 DB를 비교해서 자동으로 마이그레이션 파일을 만들어 줍니다.
 
 ### 마이그레이션 적용
 
@@ -609,7 +989,7 @@ alembic upgrade head
 # 특정 버전으로
 alembic upgrade <revision_id>
 
-# 한 단계 다운그레이드
+# 한 단계 다운그레이드 (롤백)
 alembic downgrade -1
 
 # 특정 버전으로 다운그레이드
@@ -635,6 +1015,7 @@ alembic heads
 # alembic/versions/xxx_add_users_table.py
 
 def upgrade() -> None:
+    """테이블 생성 (버전 올릴 때)"""
     op.create_table(
         'users',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -649,14 +1030,64 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """테이블 삭제 (버전 내릴 때)"""
     op.drop_index('ix_users_username', 'users')
     op.drop_index('ix_users_email', 'users')
     op.drop_table('users')
+```
+
+> **초보자 안내:** 마이그레이션 파일에는 두 함수가 있습니다:
+> - `upgrade()`: 버전 올릴 때 실행 (테이블 생성, 컬럼 추가 등)
+> - `downgrade()`: 버전 내릴 때 실행 (upgrade의 반대 작업)
+
+---
+
+## 실수하기 쉬운 부분
+
+### 1. 세션 닫지 않기
+
+```python
+# ❌ 잘못된 예
+def get_user(user_id: int):
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    return user  # db.close() 안 함! → 연결 누수
+
+# ✅ 올바른 예: Depends(get_db) 사용
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    return db.query(User).filter(User.id == user_id).first()
+```
+
+### 2. commit 없이 변경
+
+```python
+# ❌ 잘못된 예
+user.username = "new_name"
+# commit() 안 함! → 변경이 저장되지 않음
+
+# ✅ 올바른 예
+user.username = "new_name"
+db.commit()
+```
+
+### 3. N+1 문제
+
+```python
+# ❌ 잘못된 예 (쿼리 101번)
+posts = db.query(Post).all()
+for post in posts:
+    print(post.author.username)
+
+# ✅ 올바른 예 (쿼리 1번)
+posts = db.query(Post).options(joinedload(Post.author)).all()
+for post in posts:
+    print(post.author.username)
 ```
 
 ---
 
 ## 다음 단계
 
-- [인증](04_authentication.md)
-- [CRUD 작업](05_crud.md)
+- [인증](04_authentication.md) - JWT 인증 구현하기
+- [CRUD 작업](05_crud.md) - 서비스 레이어 패턴
+- [라우팅](02_routing.md) - API 엔드포인트 복습

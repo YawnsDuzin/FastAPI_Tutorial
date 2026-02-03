@@ -2,6 +2,31 @@
 
 이 문서에서는 FastAPI에서 JWT 기반 인증 시스템을 구현하는 방법을 설명합니다.
 
+> **이 문서를 읽기 전에**: [라우팅](02_routing.md)과 [데이터베이스](03_database.md)를 먼저 읽으면 이해가 쉽습니다.
+
+## 인증이란?
+
+> **초보자 안내:** 인증(Authentication)은 **"당신이 정말 그 사람인지 확인하는 과정"**입니다.
+>
+> 은행에 비유하면:
+> ```
+> [인증 vs 인가]
+>
+> 인증 (Authentication): "당신이 누구인지 확인"
+>   → 은행에서 신분증 확인
+>   → 웹에서 로그인
+>
+> 인가 (Authorization): "당신이 무엇을 할 수 있는지 확인"
+>   → 은행에서 이 계좌의 주인인지 확인
+>   → 웹에서 이 게시글을 수정할 권한이 있는지 확인
+> ```
+>
+> **이 프로젝트의 인증 방식:**
+> 1. 사용자가 이메일/비밀번호로 로그인
+> 2. 서버가 JWT 토큰을 발급
+> 3. 사용자가 API 요청할 때마다 토큰을 함께 보냄
+> 4. 서버가 토큰을 확인하고 사용자를 식별
+
 ## 목차
 
 1. [인증 개요](#인증-개요)
@@ -46,6 +71,33 @@ python-multipart==0.0.6           # Form 데이터 처리
 ---
 
 ## 비밀번호 해싱
+
+### 왜 비밀번호를 해시해야 하나요?
+
+> **초보자 안내:** 비밀번호를 **그대로 저장하면 매우 위험**합니다!
+>
+> ```
+> [잘못된 예: 비밀번호 그대로 저장]
+>
+> users 테이블
+> | email          | password     |
+> |----------------|--------------|
+> | alice@mail.com | mypass123    |  ← 해커가 DB 탈취하면 바로 노출!
+> | bob@mail.com   | secret456    |
+>
+> [올바른 예: 해시로 저장]
+>
+> users 테이블
+> | email          | hashed_password                          |
+> |----------------|------------------------------------------|
+> | alice@mail.com | $2b$12$LQv3c1yqB...  ← 원래 비밀번호 알 수 없음
+> | bob@mail.com   | $2b$12$eUj8P2xK...
+> ```
+>
+> **해시의 특징:**
+> - 같은 입력 → 항상 같은 출력
+> - 출력 → 입력 역산 불가능 (단방향)
+> - 비밀번호 확인: 입력값을 해시해서 저장된 해시와 비교
 
 ### 해싱 유틸리티 (app/utils/security.py)
 
@@ -105,6 +157,27 @@ else:
 
 ## JWT 토큰
 
+> **초보자 안내:** JWT(JSON Web Token)는 **"디지털 신분증"**과 같습니다.
+>
+> ```
+> [JWT를 왜 사용하나요?]
+>
+> 전통적인 방식 (세션):
+>   사용자 → 로그인 → 서버가 세션 ID 발급 → 서버가 세션 정보 저장
+>                                           ↑ 서버가 기억해야 함 (부담)
+>
+> JWT 방식:
+>   사용자 → 로그인 → 서버가 JWT 토큰 발급 → 사용자가 토큰 보관
+>                                           ↑ 서버는 기억 안 해도 됨!
+>
+> JWT 토큰 안에 사용자 정보가 들어있어서,
+> 서버는 토큰만 확인하면 누구인지 알 수 있습니다.
+> ```
+>
+> **비유:**
+> - 세션 = 놀이공원 입장 후 손목에 도장 (직원이 확인)
+> - JWT = 신분증 (신분증 자체에 정보가 있음)
+
 ### JWT 구조
 
 ```
@@ -114,6 +187,49 @@ Header: {"alg": "HS256", "typ": "JWT"}
 Payload: {"sub": 1, "username": "john", "exp": 1234567890}
 Signature: HMAC-SHA256(Header + Payload, secret_key)
 ```
+
+> **초보자 안내:** JWT는 세 부분으로 구성됩니다:
+>
+> | 부분 | 역할 | 비유 |
+> |------|------|------|
+> | Header | 암호화 방식 정보 | 신분증 종류 (주민등록증, 여권 등) |
+> | Payload | 실제 데이터 (사용자 ID, 이름 등) | 신분증에 적힌 정보 |
+> | Signature | 위조 방지 서명 | 신분증의 홀로그램, 워터마크 |
+>
+> ```
+> eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjEsInVzZXJuYW1lIjoiam9obiJ9.abc123...
+> └─── Header ────┘ └────────── Payload ───────────────┘ └ Signature ┘
+>
+> 점(.)으로 구분됩니다. 각 부분은 Base64로 인코딩되어 있어요.
+> ```
+
+### Access Token vs Refresh Token
+
+> **초보자 안내:** 왜 토큰이 2개 필요할까요?
+>
+> ```
+> [보안과 편의성의 균형]
+>
+> Access Token (짧은 수명: 30분~1시간)
+>   └─ API 요청할 때 사용
+>   └─ 자주 사용하므로 탈취 위험 높음
+>   └─ 그래서 수명을 짧게!
+>
+> Refresh Token (긴 수명: 7일~30일)
+>   └─ Access Token 재발급용
+>   └─ 자주 사용 안 해서 탈취 위험 낮음
+>   └─ 수명 길어도 비교적 안전
+>
+> [흐름]
+> 1. 로그인 → Access Token + Refresh Token 받음
+> 2. API 요청 → Access Token 사용
+> 3. Access Token 만료 → Refresh Token으로 새 Access Token 발급
+> 4. Refresh Token도 만료 → 다시 로그인
+> ```
+>
+> **비유:**
+> - Access Token = 일일 출입증 (매일 새로 받음)
+> - Refresh Token = 사원증 (분실 전까지 계속 사용)
 
 ### 토큰 생성 (app/utils/security.py)
 
@@ -224,7 +340,43 @@ def verify_token_type(token: str, expected_type: str) -> bool:
 
 ## OAuth2 스킴
 
+> **초보자 안내:** OAuth2는 **"인증 방식의 표준"**입니다.
+>
+> ```
+> [왜 OAuth2를 사용하나요?]
+>
+> OAuth2 없이 직접 구현:
+>   "우리만의 방식으로 로그인 만들자!"
+>   → 보안 허점 발생 가능
+>   → 다른 서비스와 호환 안 됨
+>   → 문서화 어려움
+>
+> OAuth2 사용:
+>   "검증된 표준 방식을 따르자!"
+>   → 보안 검증됨
+>   → Swagger UI에서 자동으로 로그인 UI 생성
+>   → 다른 서비스와 통합 용이
+> ```
+>
+> **이 프로젝트에서는:**
+> - `OAuth2PasswordBearer`: 토큰을 받아서 확인하는 역할
+> - `OAuth2PasswordRequestForm`: 로그인 폼 데이터 처리
+
 ### OAuth2PasswordBearer (app/dependencies/auth.py)
+
+> **초보자 안내:** `OAuth2PasswordBearer`는 **"토큰 수집기"**입니다.
+>
+> ```
+> [동작 방식]
+>
+> 클라이언트 요청:
+> GET /api/v1/posts
+> Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+>                └─────────────────────────────┘
+>                   OAuth2PasswordBearer가 이 부분을 추출
+>
+> → "eyJhbGciOiJIUzI1NiJ9..." 문자열이 함수에 전달됨
+> ```
 
 ```python
 from fastapi.security import OAuth2PasswordBearer
@@ -325,6 +477,30 @@ class AuthService:
 ---
 
 ## 인증 종속성
+
+> **초보자 안내:** 인증 종속성은 **"경비원"**과 같습니다.
+>
+> ```
+> [인증 종속성의 역할]
+>
+>                        ┌─────────────┐
+> 요청 ──→ [경비원] ──→ │ API 엔드포인트 │
+>          (인증 확인)   └─────────────┘
+>
+> 경비원(종속성)이 하는 일:
+> 1. 토큰이 있는지 확인
+> 2. 토큰이 유효한지 확인
+> 3. 토큰에서 사용자 정보 추출
+> 4. 사용자가 활성 상태인지 확인
+>
+> 모든 확인 통과 → API 실행
+> 하나라도 실패 → 401/403 에러
+> ```
+>
+> **장점:**
+> - 모든 보호된 API에서 재사용
+> - 한 곳에서 인증 로직 관리
+> - 테스트 시 쉽게 모킹 가능
 
 ### 현재 사용자 가져오기 (app/dependencies/auth.py)
 
@@ -451,6 +627,30 @@ def get_posts(
 ---
 
 ## 역할 기반 권한
+
+> **초보자 안내:** 역할 기반 권한은 **"등급별 출입증"**과 같습니다.
+>
+> ```
+> [회사 비유]
+>
+> ┌─────────────────────────────────────────────────────────┐
+> │                        회사 건물                         │
+> ├─────────────────────────────────────────────────────────┤
+> │  일반 사원 (USER)       ─ 일반 구역만 출입 가능           │
+> │  관리자 (MODERATOR)    ─ 일반 + 관리 구역 출입 가능        │
+> │  대표이사 (ADMIN)      ─ 모든 구역 출입 가능               │
+> └─────────────────────────────────────────────────────────┘
+>
+> [웹 서비스 비유]
+>
+> USER:       게시글 읽기/쓰기, 본인 글 수정/삭제
+> MODERATOR:  + 다른 사람 글 삭제, 게시글 고정
+> ADMIN:      + 사용자 관리, 시스템 설정
+> ```
+>
+> **구현 방식:**
+> - 사용자마다 `role` 필드에 역할 저장
+> - API 요청 시 역할 확인하는 종속성 사용
 
 ### 역할 정의 (app/models/user.py)
 
@@ -615,7 +815,107 @@ def refresh_tokens(self, refresh_token: str) -> Token:
 
 ---
 
+## 실수하기 쉬운 부분
+
+> **초보자 안내:** 인증 구현 시 흔히 발생하는 실수들입니다.
+
+### 1. 비밀번호를 그대로 저장
+
+```python
+# ❌ 잘못된 코드 - 절대 이렇게 하지 마세요!
+user = User(email=email, password=password)
+
+# ✅ 올바른 코드
+user = User(email=email, hashed_password=get_password_hash(password))
+```
+
+### 2. JWT 시크릿 키를 코드에 하드코딩
+
+```python
+# ❌ 잘못된 코드
+SECRET_KEY = "my-secret-key-123"  # 소스코드에 노출!
+
+# ✅ 올바른 코드 - 환경 변수 사용
+import os
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+
+# 또는 settings 사용
+from app.config import settings
+SECRET_KEY = settings.jwt_secret_key
+```
+
+### 3. Access Token과 Refresh Token 혼동
+
+```python
+# ❌ 잘못된 코드 - Refresh Token으로 API 호출
+# Refresh Token은 토큰 갱신용으로만 사용해야 합니다
+
+# ✅ 올바른 사용법
+# - Access Token: API 요청에 사용
+# - Refresh Token: /refresh 엔드포인트에만 사용
+
+if payload.get("type") != "access":
+    raise HTTPException(status_code=401, detail="Access Token이 필요합니다")
+```
+
+### 4. 인증 종속성 빠뜨림
+
+```python
+# ❌ 잘못된 코드 - 인증 없이 보호된 데이터 반환
+@router.get("/my-profile")
+def get_profile(db: Session = Depends(get_db)):
+    # 누구의 프로필???
+    pass
+
+# ✅ 올바른 코드
+@router.get("/my-profile")
+def get_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)  # 인증 필수!
+):
+    return current_user
+```
+
+### 5. 역할 확인 누락
+
+```python
+# ❌ 잘못된 코드 - 관리자 기능인데 역할 확인 안 함
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_active_user)  # 로그인만 확인
+):
+    # 일반 사용자도 다른 사람 삭제 가능! 위험!
+    pass
+
+# ✅ 올바른 코드
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user)  # 관리자만!
+):
+    pass
+```
+
+---
+
+## 요약
+
+| 개념 | 설명 | 파일 |
+|------|------|------|
+| 비밀번호 해싱 | bcrypt로 안전하게 저장 | `app/utils/security.py` |
+| JWT 토큰 | 사용자 인증 정보 담은 토큰 | `app/utils/security.py` |
+| OAuth2 스킴 | 표준 인증 방식 | `app/dependencies/auth.py` |
+| 인증 종속성 | 사용자 확인하는 경비원 | `app/dependencies/auth.py` |
+| 역할 기반 권한 | 등급별 기능 제한 | `app/dependencies/auth.py` |
+
+---
+
 ## 다음 단계
 
-- [CRUD 작업](05_crud.md)
-- [테스트](06_testing.md)
+인증 시스템을 이해했다면:
+
+- **[CRUD 작업](05_crud.md)**: 인증된 사용자로 데이터 생성/조회/수정/삭제하기
+- **[테스트](06_testing.md)**: 인증이 필요한 API 테스트 작성하기
+
+> **팁:** CRUD 작업에서 인증과 권한이 실제로 어떻게 사용되는지 확인할 수 있습니다.
