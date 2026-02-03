@@ -31,6 +31,12 @@ from fastapi.exceptions import RequestValidationError
 from app.config import settings
 from app.database import init_db
 from app.routers import api_router
+from app.utils.logger import init_logging, get_logger
+from app.middleware import LoggingMiddleware
+
+# 로깅 초기화
+init_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -45,18 +51,19 @@ async def lifespan(app: FastAPI):
     - 리소스 정리
     """
     # Startup
-    print(f"🚀 {settings.app_name} v{settings.app_version} 시작...")
-    print(f"📦 데이터베이스: {settings.db_type}")
-    print(f"🔧 디버그 모드: {settings.debug}")
+    logger.info(f"{settings.app_name} v{settings.app_version} 시작")
+    logger.info(f"데이터베이스 타입: {settings.db_type}")
+    logger.info(f"디버그 모드: {settings.debug}")
+    logger.info(f"로그 레벨: {settings.log_level}")
 
     # 데이터베이스 초기화
     init_db()
-    print("✅ 데이터베이스 테이블 생성 완료")
+    logger.info("데이터베이스 테이블 생성 완료")
 
     yield
 
     # Shutdown
-    print("👋 애플리케이션 종료...")
+    logger.info("애플리케이션 종료")
 
 
 # FastAPI 애플리케이션 생성
@@ -107,6 +114,12 @@ app.add_middleware(
     allow_headers=settings.cors_allow_headers_list,
 )
 
+# 로깅 미들웨어 설정
+app.add_middleware(
+    LoggingMiddleware,
+    exclude_paths=["/health", "/metrics", "/favicon.ico", "/docs", "/redoc", "/openapi.json"],
+)
+
 
 # ===========================================
 # Exception Handlers
@@ -131,6 +144,10 @@ async def validation_exception_handler(
             "type": error["type"]
         })
 
+    logger.warning(
+        f"요청 검증 실패 | Path: {request.url.path} | Errors: {errors}"
+    )
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -147,6 +164,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 
     처리되지 않은 예외를 잡아서 적절한 응답을 반환합니다.
     """
+    # 에러 로깅
+    logger.error(
+        f"처리되지 않은 예외 발생 | Path: {request.url.path} | "
+        f"Type: {type(exc).__name__} | Message: {str(exc)}",
+        exc_info=True
+    )
+
     # 디버그 모드에서는 상세 정보 표시
     if settings.debug:
         return JSONResponse(
